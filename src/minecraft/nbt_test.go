@@ -6,7 +6,7 @@ import "compress/gzip"
 import "reflect"
 
 func TestTestNbt(t *testing.T) {
-	testGZippedFile(t, leveldat, "hello world", map[string]interface{}{
+	testGZippedFile(t, testnbt, "hello world", map[string]interface{}{
 		"name": "Bananrama",
 	})
 }
@@ -61,8 +61,7 @@ func testGZippedFile(t *testing.T, nbtb []byte, expectedName string, expectedPay
 	}
 	defer buf.Close()
 
-	tr := NewTagReader(buf)
-	name, payload, err := tr.ReadTagCompound()
+	name, payload, err := ReadTagCompound(buf)
 	if err != nil {
 		t.Fatal(err)
 	}

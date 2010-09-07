@@ -8,8 +8,6 @@ import "os"
 type client struct {
 	server          *server
 	connection      net.Conn
-	nr              *nbt.TagReader
-	nw              *nbt.TagWriter
 	errs            chan os.Error
 	ckeepalive      chan *CKeepAlive
 	clogin          chan *CLogin
@@ -24,8 +22,6 @@ type client struct {
 func newClient(server *server, conn net.Conn) *client {
 	return &client{server,
 		conn,
-		nbt.NewTagReader(conn),
-		nbt.NewTagWriter(conn),
 		make(chan os.Error),
 		make(chan *CKeepAlive),
 		make(chan *CLogin),
@@ -58,7 +54,7 @@ func (c *client) read(done chan<- os.Error) {
 
 	for {
 		var pktype int8
-		if pktype, err = c.nr.ReadInt8(); err != nil {
+		if pktype, err = nbt.ReadInt8(c.connection); err != nil {
 			return
 		}
 
@@ -68,49 +64,49 @@ func (c *client) read(done chan<- os.Error) {
 			c.ckeepalive <- ck
 		case Login:
 			cl := new(CLogin)
-			if cl.ProtocolVersion, err = c.nr.ReadInt32(); err != nil {
+			if cl.ProtocolVersion, err = nbt.ReadInt32(c.connection); err != nil {
 				return
 			}
-			if cl.Username, err = c.nr.ReadString(); err != nil {
+			if cl.Username, err = nbt.ReadString(c.connection); err != nil {
 				return
 			}
-			if cl.Password, err = c.nr.ReadString(); err != nil {
+			if cl.Password, err = nbt.ReadString(c.connection); err != nil {
 				return
 			}
 			c.clogin <- cl
 		case Handshake:
 			ch := new(CHandshake)
-			if ch.Username, err = c.nr.ReadString(); err != nil {
+			if ch.Username, err = nbt.ReadString(c.connection); err != nil {
 				return
 			}
 			c.chandshake <- ch
 		case Flying:
 			cf := new(CFlying)
-			if cf.IsFlying, err = c.nr.ReadBool(); err != nil {
+			if cf.IsFlying, err = nbt.ReadBool(c.connection); err != nil {
 				return
 			}
 			c.cflying <- cf
 		case PlayerMoveLook:
 			cpml := new(CPlayerMoveLook)
-			if cpml.X, err = c.nr.ReadFloat64(); err != nil {
+			if cpml.X, err = nbt.ReadFloat64(c.connection); err != nil {
 				return
 			}
-			if cpml.Y, err = c.nr.ReadFloat64(); err != nil {
+			if cpml.Y, err = nbt.ReadFloat64(c.connection); err != nil {
 				return
 			}
-			if cpml.Stance, err = c.nr.ReadFloat64(); err != nil {
+			if cpml.Stance, err = nbt.ReadFloat64(c.connection); err != nil {
 				return
 			}
-			if cpml.Z, err = c.nr.ReadFloat64(); err != nil {
+			if cpml.Z, err = nbt.ReadFloat64(c.connection); err != nil {
 				return
 			}
-			if cpml.Rotation, err = c.nr.ReadFloat32(); err != nil {
+			if cpml.Rotation, err = nbt.ReadFloat32(c.connection); err != nil {
 				return
 			}
-			if cpml.Pitch, err = c.nr.ReadFloat32(); err != nil {
+			if cpml.Pitch, err = nbt.ReadFloat32(c.connection); err != nil {
 				return
 			}
-			if cpml.Unk, err = c.nr.ReadInt8(); err != nil {
+			if cpml.Unk, err = nbt.ReadInt8(c.connection); err != nil {
 				return
 			}
 			c.cplayermovelook <- cpml
@@ -131,23 +127,23 @@ func (c *client) write(done chan<- os.Error) {
 	for {
 		select {
 		case sl := <-c.slogin:
-			if err = c.nw.WriteInt8(int8(Login)); err != nil {
+			if err = nbt.WriteInt8(c.connection,int8(Login)); err != nil {
 				return
 			}
-			if err = c.nw.WriteInt32(sl.PlayerID); err != nil {
+			if err = nbt.WriteInt32(c.connection,sl.PlayerID); err != nil {
 				return
 			}
-			if err = c.nw.WriteString(sl.ServerName); err != nil {
+			if err = nbt.WriteString(c.connection,sl.ServerName); err != nil {
 				return
 			}
-			if err = c.nw.WriteString(sl.MOTD); err != nil {
+			if err = nbt.WriteString(c.connection,sl.MOTD); err != nil {
 				return
 			}
 		case sh := <-c.shandshake:
-			if err = c.nw.WriteInt8(int8(Handshake)); err != nil {
+			if err = nbt.WriteInt8(c.connection,int8(Handshake)); err != nil {
 				return
 			}
-			if err = c.nw.WriteString(sh.ServerID); err != nil {
+			if err = nbt.WriteString(c.connection,sh.ServerID); err != nil {
 				return
 			}
 		}
