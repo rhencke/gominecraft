@@ -23,7 +23,11 @@ func NewError(message string, inner os.Error) Error {
 		callerName = runtime.FuncForPC(caller).Name()
 	}
 	msg := fmt.Sprint(callerName, ": ", message)
-	return error{err: (os.ErrorString)(msg), inner: newOsOnly(inner)}
+	var inerr Error
+	if inner != nil {
+		inerr = newOsOnly(inner)
+	}
+	return error{err: (os.ErrorString)(msg), inner: inerr}
 }
 func newOsOnly(err os.Error) Error {
 	return error{err: err}
