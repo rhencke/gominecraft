@@ -11,7 +11,7 @@ func TestTestNbt(t *testing.T) {
 	})
 }
 
-func currentlyFailsTestBigTestNbt(t *testing.T) {
+func xTestBigTestNbt(t *testing.T) {
 	// TODO: figure out why this fails.  it seems ok
 	testGZippedFile(t, bigtestnbt, "Level", map[string]interface{}{
 		"shortTest":  int16(32767),

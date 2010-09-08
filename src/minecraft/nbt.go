@@ -4,11 +4,13 @@
 
 package nbt
 
-import "io"
-import "os"
-import "math"
 import "minecraft/error"
+
+import "compress/gzip"
 import "fmt"
+import "io"
+import "math"
+import "os"
 
 type TagType int8
 
@@ -31,12 +33,42 @@ const (
 	Compound
 )
 
+// Load and Save are very common operations that deserve helper functions.
+
+// It would be slightly more correct to take an io.Reader, but this is a convenience
+// function anyway.
+func Load(file string) (name string, payload map[string]interface{}, err os.Error) {
+	gz, err := os.Open(file, os.O_RDONLY, 0000)
+	if err != nil {
+		err = error.NewError("could not open file", err)
+		return
+	}
+	defer gz.Close()
+	nbtf, err := gzip.NewReader(gz)
+	if err != nil {
+		err = error.NewError("could not gunzip file", err)
+		return
+	}
+	defer nbtf.Close()
+	name, payload, err = ReadTagCompound(nbtf)
+	if err != nil {
+		err = error.NewError("could not read compound tag", err)
+		return
+	}
+	return
+}
+// It would be slightly more correct to take an io.Writer, but this is a convenience
+// function anyway.
+func Save(file string, name string, payload map[string]interface{}) (err os.Error){
+	panic("writeme")
+}
+
 // Named tag readers.
 
 func ReadNamedTag(reader io.Reader) (t NamedTag, err os.Error) {
 	var tag int8
 	if tag, err = ReadInt8(reader); err != nil {
-		err = error.NewError("could not read string length", err)
+		err = error.NewError("could not read tag type", err)
 		return
 	}
 	t.Type = TagType(tag)
@@ -347,6 +379,7 @@ func ReadList(reader io.Reader) (l []interface{}, err os.Error) {
 		return
 	}
 	ttype := TagType(ttypei8)
+	// FIXME: we need to make ReadListInt, ReadListCompound, etc...
 	l = make([]interface{}, int(llen))
 	for i := int32(0); i < llen; i++ {
 		var payload interface{}
@@ -363,6 +396,10 @@ func ReadString(reader io.Reader) (s string, err os.Error) {
 	var strlen int16
 
 	if strlen, err = ReadInt16(reader); err != nil {
+		return
+	}
+	if strlen < 0 {
+		err = error.NewError(fmt.Sprint("string had negative length of ", strlen), nil)
 		return
 	}
 	var strchars = make([]byte, strlen)
