@@ -7,8 +7,10 @@ func TestWorld(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	
 	err = w.Close()
 	if err != nil {
 		t.Error(err)
 	}
+	
 }

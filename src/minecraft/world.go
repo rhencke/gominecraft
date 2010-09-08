@@ -13,12 +13,45 @@ const (
 	sessionlock = "session.lock"
 )
 
+type XY int64
+
+func MakeXY(x int32, y int32) XY {
+	return XY(int64(x) + int64(y)<<32)
+}
+
 type World struct {
 	dir      string
 	lockmsec int64
-	leveldat map[string]interface{}
-	lockfd   *os.File
+	// see: http://www.minecraftwiki.net/wiki/Alpha_Level_Format
+	Data Data
+	// we cheat and use complex128 for X/Y, since it has equality defined.
+	Chunks map[XY]*Chunk
+	lockfd *os.File
 }
+
+type Data struct {
+	SnowCovered            int8
+	Time                   int64
+	SpawnX, SpawnY, SpawnZ int32
+	LastPlayed             int64
+	SizeOnDisk             int64
+	RandomSeed             int64
+}
+
+type Chunk struct {
+	Blocks           []byte
+	Data             []byte
+	SkyLight         []byte
+	HeightMap        []byte
+	BlockLight       []byte
+	Entities         interface{}
+	TileEntities     interface{}
+	LastUpdate       int64
+	XPos             int32
+	ZPos             int32
+	TerrainPopulated int8
+}
+
 
 func Open(worlddir string) (w *World, err os.Error) {
 	w = &World{dir: worlddir}
@@ -30,10 +63,14 @@ func Open(worlddir string) (w *World, err os.Error) {
 		err = error.NewError("unable to obtain lock on world", err)
 		return
 	}
-	if _, w.leveldat, err = nbt.Load(path.Join(w.dir, leveldat)); err != nil {
+	_, levelDat, err := nbt.Load(path.Join(w.dir, leveldat))
+	if err != nil {
 		err = error.NewError("could not read level", err)
 		return
 	}
+
+	w.Chunks = make(map[XY]*Chunk)
+	w.loadLevelDat(levelDat)
 	return
 }
 
@@ -41,6 +78,10 @@ func (world *World) Close() os.Error {
 	return world.unlock()
 }
 
+// Flushes any in-memory changes to disk
+func (world *World) Flush() os.Error {
+	panic("writeme")
+}
 
 func (world *World) verifyFormat() (err os.Error) {
 	// We don't want to go crazy vetting every byte, but we can at least do a sanity check
@@ -137,4 +178,68 @@ func (world *World) verifyLock() (err os.Error) {
 
 func (world *World) unlock() os.Error {
 	return world.lockfd.Close()
+}
+
+func (world *World) loadLevelDat(level map[string]interface{}) {
+	data := level["Data"].(map[string]interface{})
+	world.Data = Data{
+		SnowCovered: data["SnowCovered"].(int8),
+		Time:        data["Time"].(int64),
+		SpawnX:      data["SpawnX"].(int32),
+		SpawnY:      data["SpawnY"].(int32),
+		SpawnZ:      data["SpawnZ"].(int32),
+		LastPlayed:  data["LastPlayed"].(int64),
+		SizeOnDisk:  data["SizeOnDisk"].(int64),
+		RandomSeed:  data["RandomSeed"].(int64),
+	}
+}
+func posmod64(i int32) int32 {
+	if i < 0 {
+		i = 64 - i
+	}
+	return i % 64
+}
+func (world *World) LoadChunk(x int32, y int32) (err os.Error) {
+	if err = world.verifyLock(); err != nil {
+		return
+	}
+
+	xy := MakeXY(x, y)
+	if _, ok := world.Chunks[xy]; ok {
+		return // nothing to do
+	}
+	var px, py = posmod64(x), posmod64(y)
+
+	chunkPath := path.Join(
+		world.dir,
+		int32ToBase36String(px),
+		int32ToBase36String(py),
+		fmt.Sprint(
+			"c.",
+			int32ToBase36String(x),
+			".",
+			int32ToBase36String(y),
+			".dat"))
+
+	_, chunkmap, err := nbt.Load(chunkPath)
+	if err != nil {
+		err = error.NewError(fmt.Sprintf("could not load chunk (%d, %d)", x, y), err)
+		return
+	}
+	levmap := chunkmap["Level"].(map[string]interface{})
+	world.Chunks[xy] = &Chunk{
+		Blocks:           levmap["Blocks"].([]byte),
+		Data:             levmap["Data"].([]byte),
+		SkyLight:         levmap["SkyLight"].([]byte),
+		HeightMap:        levmap["HeightMap"].([]byte),
+		BlockLight:       levmap["BlockLight"].([]byte),
+		Entities:         levmap["Entities"].(interface{}),
+		TileEntities:     levmap["TileEntities"].(interface{}),
+		LastUpdate:       levmap["LastUpdate"].(int64),
+		XPos:             levmap["xPos"].(int32),
+		ZPos:             levmap["xPos"].(int32),
+		TerrainPopulated: levmap["TerrainPopulated"].(int8),
+	}
+	return
+
 }
