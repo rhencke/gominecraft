@@ -399,7 +399,7 @@ func ReadString(reader io.Reader) (s string, err os.Error) {
 		return
 	}
 	if strlen < 0 {
-		err = error.NewError(fmt.Sprint("string had negative length of ", strlen), nil)
+		err = error.NewError("string length cannot be < 0", nil)
 		return
 	}
 	var strchars = make([]byte, strlen)
