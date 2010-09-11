@@ -5,7 +5,7 @@ import "fmt"
 import "minecraft/nbt"
 import "os"
 
-type client struct {
+type conn struct {
 	server          *server
 	connection      net.Conn
 	errs            chan os.Error
@@ -19,9 +19,9 @@ type client struct {
 	Username        string
 }
 
-func newClient(server *server, conn net.Conn) *client {
-	return &client{server,
-		conn,
+func newConn(server *server, netconn net.Conn) *conn {
+	return &conn{server,
+		netconn,
 		make(chan os.Error),
 		make(chan *CKeepAlive),
 		make(chan *CLogin),
@@ -33,7 +33,7 @@ func newClient(server *server, conn net.Conn) *client {
 		""}
 }
 
-func (c *client) accept() {
+func (c *conn) accept() {
 	done := make(chan os.Error)
 	go c.read(done)
 	go c.write(done)
@@ -44,7 +44,7 @@ func (c *client) accept() {
 	c.connection.Close()
 }
 
-func (c *client) read(done chan<- os.Error) {
+func (c *conn) read(done chan<- os.Error) {
 	var err os.Error
 	defer func() {
 		if err != nil {
@@ -117,7 +117,7 @@ func (c *client) read(done chan<- os.Error) {
 	return
 }
 
-func (c *client) write(done chan<- os.Error) {
+func (c *conn) write(done chan<- os.Error) {
 	var err os.Error
 	defer func() {
 		if err != nil {

@@ -39,12 +39,15 @@ type Data struct {
 }
 
 type Chunk struct {
+	Level Level
+}
+type Level struct {
 	Blocks           []byte
 	Data             []byte
 	SkyLight         []byte
 	HeightMap        []byte
 	BlockLight       []byte
-	Entities         interface{}
+	Entities         []*Entity
 	TileEntities     interface{}
 	LastUpdate       int64
 	XPos             int32
@@ -52,6 +55,40 @@ type Chunk struct {
 	TerrainPopulated int8
 }
 
+type Entity struct {
+	Id           string
+	OnGround     int8
+	Air          int16
+	Fire         int16
+	Health       *int16
+	Tile         *int16
+	Item         *Item
+	FallDistance float32
+	Physics      Physics
+	Age          *int16
+}
+
+type Item struct {
+	Id     int16
+	Count  int8
+	Damage int16
+}
+
+type Physics struct {
+	Position Position
+	Velocity Velocity
+	Euler    Euler
+}
+
+type Position struct {
+	X, Y, Z float64
+}
+type Velocity struct {
+	DX, DY, DZ float64
+}
+type Euler struct {
+	Yaw, Pitch, Roll float32
+}
 
 func Open(worlddir string) (w *World, err os.Error) {
 	w = &World{dir: worlddir}
@@ -199,6 +236,7 @@ func posmod64(i int32) int32 {
 	}
 	return i % 64
 }
+
 func (world *World) LoadChunk(x int32, y int32) (err os.Error) {
 	if err = world.verifyLock(); err != nil {
 		return
@@ -226,20 +264,79 @@ func (world *World) LoadChunk(x int32, y int32) (err os.Error) {
 		err = error.NewError(fmt.Sprintf("could not load chunk (%d, %d)", x, y), err)
 		return
 	}
-	levmap := chunkmap["Level"].(map[string]interface{})
-	world.Chunks[xy] = &Chunk{
-		Blocks:           levmap["Blocks"].([]byte),
-		Data:             levmap["Data"].([]byte),
-		SkyLight:         levmap["SkyLight"].([]byte),
-		HeightMap:        levmap["HeightMap"].([]byte),
-		BlockLight:       levmap["BlockLight"].([]byte),
-		Entities:         levmap["Entities"].(interface{}),
-		TileEntities:     levmap["TileEntities"].(interface{}),
-		LastUpdate:       levmap["LastUpdate"].(int64),
-		XPos:             levmap["xPos"].(int32),
-		ZPos:             levmap["xPos"].(int32),
-		TerrainPopulated: levmap["TerrainPopulated"].(int8),
-	}
+	world.Chunks[xy] = toChunk(chunkmap)
 	return
 
+}
+
+func toChunk(payload map[string]interface{}) *Chunk {
+
+	levmap := payload["Level"].(map[string]interface{})
+	return &Chunk{
+		Level: Level{
+			Blocks:           levmap["Blocks"].([]byte),
+			Data:             levmap["Data"].([]byte),
+			SkyLight:         levmap["SkyLight"].([]byte),
+			HeightMap:        levmap["HeightMap"].([]byte),
+			BlockLight:       levmap["BlockLight"].([]byte),
+			Entities:         toEntityList(levmap["Entities"].([]interface{})),
+			TileEntities:     levmap["TileEntities"].(interface{}),
+			LastUpdate:       levmap["LastUpdate"].(int64),
+			XPos:             levmap["xPos"].(int32),
+			ZPos:             levmap["xPos"].(int32),
+			TerrainPopulated: levmap["TerrainPopulated"].(int8),
+		},
+	}
+}
+func toEntityList(payload []interface{}) []*Entity {
+	entities := make([]*Entity, len(payload))
+	for i, e := range payload {
+		entities[i] = toEntity(e.(map[string]interface{}))
+	}
+	return entities
+}
+
+func toEntity(payload map[string]interface{}) *Entity {
+	xyz := payload["Pos"].([]interface{})       // FIXME
+	dxdydz := payload["Motion"].([]interface{}) // FIXME
+	rpy := payload["Rotation"].([]interface{})  // FIXME
+
+	ent := Entity{
+		Id:           payload["id"].(string),
+		OnGround:     payload["OnGround"].(int8),
+		Air:          payload["Air"].(int16),
+		Fire:         payload["Fire"].(int16),
+		FallDistance: payload["FallDistance"].(float32),
+		Physics: Physics{
+			Position{xyz[0].(float64), xyz[1].(float64), xyz[2].(float64)},
+			Velocity{dxdydz[0].(float64), dxdydz[1].(float64), dxdydz[2].(float64)},
+			Euler{0, rpy[1].(float32), rpy[0].(float32)},
+		},
+	}
+
+	// nullables
+	ihealth, ok := payload["Health"].(int16)
+	if ok {
+		ent.Health = &ihealth
+	}
+
+	iage, ok := payload["Age"].(int16)
+	if ok {
+		ent.Age = &iage
+	}
+
+	itile, ok := payload["Tile"].(int16)
+	if ok {
+		ent.Tile = &itile
+	}
+
+	iitem, ok := payload["Item"].(map[string]interface{})
+	if ok {
+		ent.Item = &Item{
+			Id:     iitem["id"].(int16),
+			Count:  iitem["Count"].(int8),
+			Damage: iitem["Damage"].(int16),
+		}
+	}
+	return &ent
 }
