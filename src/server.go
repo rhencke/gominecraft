@@ -69,6 +69,7 @@ func (s *server) talk(conn *conn) {
 		case pml := <-conn.cplayermovelook:
 			s.worldMgr.setPlayerPos <- &playerPos{ID: conn.id, Position: &pml.Position}
 			s.worldMgr.setPlayerLook <- &playerLook{ID: conn.id, Look: &pml.Look}
+			conn.splayermovelook <- &SPlayerMoveLook{pml.Position, pml.Look, pml.Unk}
 		}
 	}
 }

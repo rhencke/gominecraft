@@ -6,6 +6,7 @@ import "bufio"
 import "bytes"
 import "compress/zlib"
 import "fmt"
+import "io"
 import "net"
 import "os"
 
@@ -19,6 +20,7 @@ type conn struct {
 	shandshake      chan *SHandshake
 	sspawnposition  chan *SSpawnPosition
 	cflying         chan *CFlying
+	cplayerposition chan *CPlayerPosition
 	cplayermovelook chan *CPlayerMoveLook
 	splayermovelook chan *SPlayerMoveLook
 	sprechunk       chan *SPreChunk
@@ -37,6 +39,7 @@ func newConn(server *server, netconn net.Conn) *conn {
 		make(chan *SHandshake),
 		make(chan *SSpawnPosition),
 		make(chan *CFlying),
+		make(chan *CPlayerPosition),
 		make(chan *CPlayerMoveLook),
 		make(chan *SPlayerMoveLook),
 		make(chan *SPreChunk),
@@ -97,18 +100,15 @@ func (c *conn) read(done chan<- os.Error) {
 				return
 			}
 			c.cflying <- cf
+		case PlayerPosition:
+			cpp := new(CPlayerPosition)
+			if cpp.Position, err = readPlayerPos(bc); err != nil {
+				return
+			}
+			c.cplayerposition <- cpp
 		case PlayerMoveLook:
 			cpml := new(CPlayerMoveLook)
-			if cpml.Position.X, err = nbt.ReadFloat64(bc); err != nil {
-				return
-			}
-			if cpml.Position.Y, err = nbt.ReadFloat64(bc); err != nil {
-				return
-			}
-			if cpml.Position.Stance, err = nbt.ReadFloat64(bc); err != nil {
-				return
-			}
-			if cpml.Position.Z, err = nbt.ReadFloat64(bc); err != nil {
+			if cpml.Position, err = readPlayerPos(bc); err != nil {
 				return
 			}
 			if cpml.Look.Rotation, err = nbt.ReadFloat32(bc); err != nil {
@@ -250,4 +250,20 @@ func (c *conn) write(done chan<- os.Error) {
 			return
 		}
 	}
+}
+
+func readPlayerPos(r io.Reader) (p PlayerPositionData, err os.Error) {
+	if p.X, err = nbt.ReadFloat64(r); err != nil {
+		return
+	}
+	if p.Y, err = nbt.ReadFloat64(r); err != nil {
+		return
+	}
+	if p.Stance, err = nbt.ReadFloat64(r); err != nil {
+		return
+	}
+	if p.Z, err = nbt.ReadFloat64(r); err != nil {
+		return
+	}
+	return
 }
