@@ -59,7 +59,7 @@ func Load(file string) (name string, payload map[string]interface{}, err os.Erro
 }
 // It would be slightly more correct to take an io.Writer, but this is a convenience
 // function anyway.
-func Save(file string, name string, payload map[string]interface{}) (err os.Error){
+func Save(file string, name string, payload map[string]interface{}) (err os.Error) {
 	panic("writeme")
 }
 
@@ -210,6 +210,22 @@ func ReadByteArray(reader io.Reader) (b []byte, err os.Error) {
 	}
 	return
 }
+
+
+func WriteByteArray(writer io.Writer, b []byte) (err os.Error) {
+	length := len(b)
+	if length > math.MaxInt32 {
+		return (os.ErrorString)("nbt.WriteByteArray: byte array was too long")
+	}
+	if err = WriteInt32(writer, int32(length)); err != nil {
+		return
+	}
+	if _, err = writer.Write(b); err != nil {
+		return
+	}
+	return
+}
+
 
 func ReadCompound(reader io.Reader) (c map[string]interface{}, err os.Error) {
 	c = make(map[string]interface{})

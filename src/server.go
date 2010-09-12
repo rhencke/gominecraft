@@ -1,28 +1,21 @@
 package main
 
+import "minecraft/world"
+
 import "net"
 import "os"
-// import "fmt"
-
-
-type client struct{}
 
 type server struct {
 	listener  net.Listener
 	done      chan bool
 	clientMgr *clientMgr
+	worldMgr  *worldMgr
 	id        string
 	name      string
 	motd      string
 }
 
-type clientMgr struct {
-	clientIdPool chan int32
-	addClient    chan chan int32
-	clients      []*client
-}
-
-func newServer(address *net.TCPAddr) (s *server, err os.Error) {
+func newServer(address *net.TCPAddr, world *world.World) (s *server, err os.Error) {
 	s = new(server)
 	l, err := net.ListenTCP("tcp", address)
 
@@ -32,16 +25,13 @@ func newServer(address *net.TCPAddr) (s *server, err os.Error) {
 
 	s.listener = l
 	s.done = make(chan bool)
-	s.clientMgr = &clientMgr{
-		make(chan int32, MAX_CLIENTS),
-		make(chan chan int32),
-		make([]*client, MAX_CLIENTS),
-	}
-	s.id = "abcdef"
+	s.clientMgr = makeClientMgr()
+	s.worldMgr = makeWorldMgr(world)
+	s.id = "bcfd241a420f886e"
 
 	go s.acceptConnections()
-	go s.clientMgr.run()
-
+	go s.clientMgr.run(s)
+	go s.worldMgr.run(s)
 	return s, err
 }
 
@@ -53,46 +43,32 @@ func (s *server) acceptConnections() {
 		}
 		c := newConn(s, conn)
 		go c.accept()
-		go s.clientTalk(c)
+		go s.talk(c)
 	}
 }
 
-func (c *clientMgr) run() {
-	go func() {
-		for i := (int32)(0); i < MAX_CLIENTS; i++ {
-			c.clientIdPool <- i
-		}
-	}()
-	for {
-		select {
-		case newguy := <-c.addClient:
-			cid := <-c.clientIdPool
-			c.clients[cid] = &client{}
-			newguy <- cid
-		}
-	}
-}
-
-
-func (s *server) clientTalk(conn *conn) {
+func (s *server) talk(conn *conn) {
 	<-conn.chandshake
 	conn.shandshake <- &SHandshake{ServerID: s.id}
-
 	cl := <-conn.clogin
-	conn.Username = cl.Username
-	connected := make(chan int32)
-	s.clientMgr.addClient <- connected
-	id := <-connected
-	conn.slogin <- &SLogin{PlayerID: id, ServerName: s.name, MOTD: s.motd}
-	cl = nil
+	idchan := make(chan int32)
+	s.clientMgr.addClient <- &addClientReq{&client{cl.Username, conn}, idchan}
+	conn.id = <-idchan
+	conn.slogin <- &SLogin{PlayerID: conn.id, ServerName: s.name, MOTD: s.motd}
+	cl, idchan = nil, nil
+
+	spawnpos := make(chan *BlockPositionData)
+	s.worldMgr.getSpawnPos <- &spawnPosReq{conn.id, spawnpos}
+	conn.sspawnposition <- &SSpawnPosition{*<-spawnpos}
 	for {
 		select {
 		case <-conn.ckeepalive:
 			// fmt.Print("kept alive!\n")
 		case <-conn.cflying:
 			// fmt.Print("they flew!\n")
-		case <-conn.cplayermovelook:
-			// fmt.Print("they moved!\n")
+		case pml := <-conn.cplayermovelook:
+			s.worldMgr.setPlayerPos <- &playerPos{ID: conn.id, Position: &pml.Position}
+			s.worldMgr.setPlayerLook <- &playerLook{ID: conn.id, Look: &pml.Look}
 		}
 	}
 }

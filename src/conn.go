@@ -1,12 +1,15 @@
 package main
 
-import "net"
-import "fmt"
 import "minecraft/nbt"
+
+import "bufio"
+import "bytes"
+import "compress/zlib"
+import "fmt"
+import "net"
 import "os"
 
 type conn struct {
-	server          *server
 	connection      net.Conn
 	errs            chan os.Error
 	ckeepalive      chan *CKeepAlive
@@ -14,13 +17,17 @@ type conn struct {
 	slogin          chan *SLogin
 	chandshake      chan *CHandshake
 	shandshake      chan *SHandshake
+	sspawnposition  chan *SSpawnPosition
 	cflying         chan *CFlying
 	cplayermovelook chan *CPlayerMoveLook
-	Username        string
+	splayermovelook chan *SPlayerMoveLook
+	sprechunk       chan *SPreChunk
+	smapchunk       chan *SMapChunk
+	id              int32
 }
 
 func newConn(server *server, netconn net.Conn) *conn {
-	return &conn{server,
+	return &conn{
 		netconn,
 		make(chan os.Error),
 		make(chan *CKeepAlive),
@@ -28,9 +35,13 @@ func newConn(server *server, netconn net.Conn) *conn {
 		make(chan *SLogin),
 		make(chan *CHandshake),
 		make(chan *SHandshake),
+		make(chan *SSpawnPosition),
 		make(chan *CFlying),
 		make(chan *CPlayerMoveLook),
-		""}
+		make(chan *SPlayerMoveLook),
+		make(chan *SPreChunk),
+		make(chan *SMapChunk),
+		-1}
 }
 
 func (c *conn) accept() {
@@ -51,62 +62,62 @@ func (c *conn) read(done chan<- os.Error) {
 			c.errs <- err
 		}
 	}()
-
+	bc := bufio.NewReader(c.connection)
 	for {
 		var pktype int8
-		if pktype, err = nbt.ReadInt8(c.connection); err != nil {
+		if pktype, err = nbt.ReadInt8(bc); err != nil {
 			return
 		}
 
-		switch (PacketId)(pktype) {
+		switch pktype {
 		case KeepAlive:
 			ck := new(CKeepAlive)
 			c.ckeepalive <- ck
 		case Login:
 			cl := new(CLogin)
-			if cl.ProtocolVersion, err = nbt.ReadInt32(c.connection); err != nil {
+			if cl.ProtocolVersion, err = nbt.ReadInt32(bc); err != nil {
 				return
 			}
-			if cl.Username, err = nbt.ReadString(c.connection); err != nil {
+			if cl.Username, err = nbt.ReadString(bc); err != nil {
 				return
 			}
-			if cl.Password, err = nbt.ReadString(c.connection); err != nil {
+			if cl.Password, err = nbt.ReadString(bc); err != nil {
 				return
 			}
 			c.clogin <- cl
 		case Handshake:
 			ch := new(CHandshake)
-			if ch.Username, err = nbt.ReadString(c.connection); err != nil {
+			if ch.Username, err = nbt.ReadString(bc); err != nil {
 				return
 			}
 			c.chandshake <- ch
 		case Flying:
 			cf := new(CFlying)
-			if cf.IsFlying, err = nbt.ReadBool(c.connection); err != nil {
+			if cf.IsFlying, err = nbt.ReadBool(bc); err != nil {
 				return
 			}
 			c.cflying <- cf
 		case PlayerMoveLook:
 			cpml := new(CPlayerMoveLook)
-			if cpml.X, err = nbt.ReadFloat64(c.connection); err != nil {
+			if cpml.Position.X, err = nbt.ReadFloat64(bc); err != nil {
 				return
 			}
-			if cpml.Y, err = nbt.ReadFloat64(c.connection); err != nil {
+			if cpml.Position.Y, err = nbt.ReadFloat64(bc); err != nil {
 				return
 			}
-			if cpml.Stance, err = nbt.ReadFloat64(c.connection); err != nil {
+			if cpml.Position.Stance, err = nbt.ReadFloat64(bc); err != nil {
 				return
 			}
-			if cpml.Z, err = nbt.ReadFloat64(c.connection); err != nil {
+			if cpml.Position.Z, err = nbt.ReadFloat64(bc); err != nil {
 				return
 			}
-			if cpml.Rotation, err = nbt.ReadFloat32(c.connection); err != nil {
+			if cpml.Look.Rotation, err = nbt.ReadFloat32(bc); err != nil {
 				return
 			}
-			if cpml.Pitch, err = nbt.ReadFloat32(c.connection); err != nil {
+			if cpml.Look.Pitch, err = nbt.ReadFloat32(bc); err != nil {
 				return
 			}
-			if cpml.Unk, err = nbt.ReadInt8(c.connection); err != nil {
+			if cpml.Unk, err = nbt.ReadInt8(bc); err != nil {
 				return
 			}
 			c.cplayermovelook <- cpml
@@ -124,28 +135,119 @@ func (c *conn) write(done chan<- os.Error) {
 			c.errs <- err
 		}
 	}()
+	bc := bufio.NewWriter(c.connection)
+
 	for {
 		select {
 		case sl := <-c.slogin:
-			if err = nbt.WriteInt8(c.connection,int8(Login)); err != nil {
+			if err = nbt.WriteInt8(bc, Login); err != nil {
 				return
 			}
-			if err = nbt.WriteInt32(c.connection,sl.PlayerID); err != nil {
+			if err = nbt.WriteInt32(bc, sl.PlayerID); err != nil {
 				return
 			}
-			if err = nbt.WriteString(c.connection,sl.ServerName); err != nil {
+			if err = nbt.WriteString(bc, sl.ServerName); err != nil {
 				return
 			}
-			if err = nbt.WriteString(c.connection,sl.MOTD); err != nil {
+			if err = nbt.WriteString(bc, sl.MOTD); err != nil {
 				return
 			}
 		case sh := <-c.shandshake:
-			if err = nbt.WriteInt8(c.connection,int8(Handshake)); err != nil {
+			if err = nbt.WriteInt8(bc, Handshake); err != nil {
 				return
 			}
-			if err = nbt.WriteString(c.connection,sh.ServerID); err != nil {
+			if err = nbt.WriteString(bc, sh.ServerID); err != nil {
 				return
 			}
+		case ssp := <-c.sspawnposition:
+			if err = nbt.WriteInt8(bc, SpawnPosition); err != nil {
+				return
+			}
+			if err = nbt.WriteInt32(bc, ssp.Position.X); err != nil {
+				return
+			}
+			if err = nbt.WriteInt32(bc, ssp.Position.Y); err != nil {
+				return
+			}
+			if err = nbt.WriteInt32(bc, ssp.Position.Z); err != nil {
+				return
+			}
+		case spml := <-c.splayermovelook:
+			if err = nbt.WriteInt8(bc, PlayerMoveLook); err != nil {
+				return
+			}
+			if err = nbt.WriteFloat64(bc, spml.Position.X); err != nil {
+				return
+			}
+			if err = nbt.WriteFloat64(bc, spml.Position.Y); err != nil {
+				return
+			}
+			if err = nbt.WriteFloat64(bc, spml.Position.Stance); err != nil {
+				return
+			}
+			if err = nbt.WriteFloat64(bc, spml.Position.Z); err != nil {
+				return
+			}
+			if err = nbt.WriteFloat32(bc, spml.Look.Rotation); err != nil {
+				return
+			}
+			if err = nbt.WriteFloat32(bc, spml.Look.Pitch); err != nil {
+				return
+			}
+			if err = nbt.WriteInt8(bc, spml.Unk); err != nil {
+				return
+			}
+		case spc := <-c.sprechunk:
+			if err = nbt.WriteInt8(bc, PreChunk); err != nil {
+				return
+			}
+			if err = nbt.WriteInt32(bc, spc.X); err != nil {
+				return
+			}
+			if err = nbt.WriteInt32(bc, spc.Z); err != nil {
+				return
+			}
+			if err = nbt.WriteBool(bc, spc.Mode); err != nil {
+				return
+			}
+		case sch := <-c.smapchunk:
+			if err = nbt.WriteInt8(bc, int8(MapChunk)); err != nil {
+				return
+			}
+			if err = nbt.WriteInt32(bc, sch.X); err != nil {
+				return
+			}
+			if err = nbt.WriteInt16(bc, sch.Y); err != nil {
+				return
+			}
+			if err = nbt.WriteInt32(bc, sch.Z); err != nil {
+				return
+			}
+			if err = nbt.WriteInt8(bc, sch.SizeX); err != nil {
+				return
+			}
+			if err = nbt.WriteInt8(bc, sch.SizeY); err != nil {
+				return
+			}
+			if err = nbt.WriteInt8(bc, sch.SizeZ); err != nil {
+				return
+			}
+			// Minecraft expects map chunks to be zlib compressed.
+			var b bytes.Buffer
+			compressor, err := zlib.NewWriter(&b)
+			if err != nil {
+				return
+			}
+			compressor.Write(sch.Chunk)
+			compressor.Close()
+			if err = nbt.WriteByteArray(bc, b.Bytes()); err != nil {
+				return
+			}
+		}
+
+		// send packet
+		if err = bc.Flush(); err != nil {
+			return
 		}
 	}
 }

@@ -13,10 +13,10 @@ const (
 	sessionlock = "session.lock"
 )
 
-type XY int64
+type XZ int64
 
-func MakeXY(x int32, y int32) XY {
-	return XY(int64(x) + int64(y)<<32)
+func MakeXZ(x int32, z int32) XZ {
+	return XZ(int64(x) + int64(z)<<32)
 }
 
 type World struct {
@@ -24,8 +24,8 @@ type World struct {
 	lockmsec int64
 	// see: http://www.minecraftwiki.net/wiki/Alpha_Level_Format
 	Data Data
-	// we cheat and use complex128 for X/Y, since it has equality defined.
-	Chunks map[XY]*Chunk
+	// we cheat and use int64, since it has equality defined.
+	Chunks map[XZ]*Chunk
 	lockfd *os.File
 }
 
@@ -41,6 +41,7 @@ type Data struct {
 type Chunk struct {
 	Level Level
 }
+
 type Level struct {
 	Blocks           []byte
 	Data             []byte
@@ -106,7 +107,7 @@ func Open(worlddir string) (w *World, err os.Error) {
 		return
 	}
 
-	w.Chunks = make(map[XY]*Chunk)
+	w.Chunks = make(map[XZ]*Chunk)
 	w.loadLevelDat(levelDat)
 	return
 }
@@ -237,34 +238,34 @@ func posmod64(i int32) int32 {
 	return i % 64
 }
 
-func (world *World) LoadChunk(x int32, y int32) (err os.Error) {
+func (world *World) LoadChunk(x int32, z int32) (err os.Error) {
 	if err = world.verifyLock(); err != nil {
 		return
 	}
 
-	xy := MakeXY(x, y)
-	if _, ok := world.Chunks[xy]; ok {
+	xz := MakeXZ(x, z)
+	if _, ok := world.Chunks[xz]; ok {
 		return // nothing to do
 	}
-	var px, py = posmod64(x), posmod64(y)
+	var px, pz = posmod64(x), posmod64(z)
 
 	chunkPath := path.Join(
 		world.dir,
 		int32ToBase36String(px),
-		int32ToBase36String(py),
+		int32ToBase36String(pz),
 		fmt.Sprint(
 			"c.",
 			int32ToBase36String(x),
 			".",
-			int32ToBase36String(y),
+			int32ToBase36String(z),
 			".dat"))
 
 	_, chunkmap, err := nbt.Load(chunkPath)
 	if err != nil {
-		err = error.NewError(fmt.Sprintf("could not load chunk (%d, %d)", x, y), err)
+		err = error.NewError(fmt.Sprintf("could not load chunk (%d, %d)", x, z), err)
 		return
 	}
-	world.Chunks[xy] = toChunk(chunkmap)
+	world.Chunks[xz] = toChunk(chunkmap)
 	return
 
 }
